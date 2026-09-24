@@ -1,0 +1,22 @@
+#!/bin/bash
+# ============================================================
+# 卸载前脚本 —— 指引 8.14 prerm
+# 停服 + 清理本应用的残留 socket，保证「卸载后无残留进程」。
+# ============================================================
+set -e
+
+APPID="shh13-mcp-hub"
+APPUSER="shh13mcphub"
+SERVICE="${APPID}.service"
+
+systemctl stop "${SERVICE}" 2>/dev/null || true
+systemctl disable "${SERVICE}" 2>/dev/null || true
+
+# 兜底杀掉该用户残留的进程（升级路径上 systemd 可能来不及回收）
+pkill -u "${APPUSER}" 2>/dev/null || true
+sleep 1
+
+# 残留 socket 会让下次安装启动失败（指引 12.9.5-4）
+rm -f "/var/api/${APPID}.sock" 2>/dev/null || true
+
+exit 0

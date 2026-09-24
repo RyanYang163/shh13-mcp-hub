@@ -1,0 +1,9 @@
+Package: shh13-mcp-hub
+Version: 1.0.0
+Architecture: amd64
+Section: utils
+Priority: optional
+Maintainer: shh <surpasshither@outlook.com>
+Depends: python3 (>= 3.10), systemd
+Description: MCP Hub
+ A permission-controlled MCP server that lets an AI client read files, storage and media metadata on your TNAS - read-only by default.

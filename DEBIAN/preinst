@@ -1,0 +1,14 @@
+#!/bin/bash
+# ============================================================
+# 安装前脚本 —— 指引 8.14 preinst
+# 只做目录准备。**禁止**任何网络操作（apt / pip / curl），
+# 见指引 16.2 Security：「Deb scripts are prohibited from performing
+# network operations such as apt install, pip install, curl | bash」。
+# ============================================================
+set -e
+
+# iframe 应用的平台代理 socket 目录（指引 8.3.1 / 8.14 要求 preinst 建好）
+mkdir -p /var/api
+chmod 755 /var/api 2>/dev/null || true
+
+exit 0

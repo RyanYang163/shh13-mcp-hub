@@ -1,0 +1,53 @@
+#!/bin/bash
+# ============================================================
+# 安装后脚本 —— 指引 8.14 postinst
+# 禁止网络操作；只做用户/目录/权限/服务注册。
+# ============================================================
+set -e
+
+APPID="shh13-mcp-hub"
+APPUSER="shh13mcphub"
+APP_DIR="/usr/local/${APPID}"
+SERVICE="${APPID}.service"
+
+# 指引 10.3：应用用户由平台在安装时自动创建，开发者只需在 config.ini 里声明。
+# 这里保留**幂等兜底**：平台建过就什么都不做；万一没建（异常路径），至少服务能起来。
+# 官方 deb-single 模板的 postinst 同样包含这段。
+if ! id -u "${APPUSER}" >/dev/null 2>&1; then
+    useradd --system --no-create-home --shell /usr/sbin/nologin "${APPUSER}" 2>/dev/null || true
+fi
+if ! getent group "${APPUSER}" >/dev/null 2>&1; then
+    groupadd --system "${APPUSER}" 2>/dev/null || true
+fi
+
+mkdir -p /var/api
+chmod 755 /var/api 2>/dev/null || true
+
+# 解压前端。平台既可能直接从这里取静态页，也可能全部由后端经 socket 提供，
+# 两条路都备好（前端只用相对路径，两种前缀下都能跑）。
+if [ -f "${APP_DIR}/webui.bz2" ]; then
+    rm -rf "${APP_DIR}/webui"
+    mkdir -p "${APP_DIR}/webui"
+    tar -xjf "${APP_DIR}/webui.bz2" -C "${APP_DIR}/webui" 2>/dev/null || true
+fi
+
+# 运行期数据目录的属主：升级时也要重设，否则会出现「配置权限在升级后丢失」
+for BASE in /Volume1 /Volume2 /Volume3 /Volume4 /Volume5 /Volume6; do
+    [ -d "${BASE}/@apps/${APPID}" ] || continue
+    mkdir -p "${BASE}/@apps/${APPID}/data"
+    chown -R "${APPUSER}:${APPUSER}" "${BASE}/@apps/${APPID}/data" 2>/dev/null || true
+done
+
+chown -R "${APPUSER}:${APPUSER}" "${APP_DIR}" 2>/dev/null || true
+
+# 升级迁移钩子：指引 4.3 —— postinst 收到的 $1=configure，$2=旧版本号。
+# 数据结构迁移由应用自己在启动时按 PRAGMA user_version 完成（禁止升级时删库）。
+if [ -n "${2:-}" ]; then
+    echo "${APPID}: upgrading from ${2} to 1.0.0"
+fi
+
+systemctl daemon-reload 2>/dev/null || true
+systemctl enable "${SERVICE}" 2>/dev/null || true
+systemctl restart "${SERVICE}" 2>/dev/null || true
+
+exit 0

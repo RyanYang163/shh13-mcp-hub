@@ -1,0 +1,97 @@
+[zh-cn]
+name = "MCP 智能助手网关"
+auth = "shh"
+descript = "对外提供一个 Model Context Protocol 服务端，让支持 MCP 的 AI 客户端（Claude、Cursor 或任何其它 MCP 客户端）能操作你的 TNAS。工具分四组：文件（list_directory、search_files、get_file_info、read_text_file）、存储（get_volume_usage、get_folder_size、get_large_files）、媒体（get_media_metadata、extract_audio）、任务（create_job、get_job、cancel_job）。访问由你维护的目录白名单与三级权限控制——只读（默认）、可写、危险。**不提供任何形式的 shell 执行工具**：每个操作都是固定命名的具体能力。每次调用都会解析路径并与白名单比对，目录穿越与逃出允许范围的软链接都会被拒绝。所有工具调用都写入审计日志，可在网页界面查看，界面同时给出可直接粘贴到 AI 客户端的配置片段。服务端以 JSON-RPC 2.0 同时支持 stdio 与 HTTP 两种传输。"
+release_note = "1. 首次发布。"
+important = "默认权限为只读，且目录白名单初始为空。连接 AI 客户端前请先显式添加可访问目录。"
+
+[zh-hk]
+name = "MCP 智能助理閘道"
+auth = "shh"
+descript = "對外提供一個 Model Context Protocol 伺服端，讓支援 MCP 的 AI 客戶端（Claude、Cursor 或任何其它 MCP 客戶端）能操作你的 TNAS。工具分四組：檔案、儲存、媒體、任務。存取由你維護的目錄白名單與三級權限控制——唯讀（預設）、可寫、危險。**不提供任何形式的 shell 執行工具**：每個操作都是固定命名的具體能力。每次呼叫都會解析路徑並與白名單比對，目錄穿越與逃出允許範圍的軟連結都會被拒絕。所有工具呼叫都寫入稽核日誌，可在網頁介面查看，介面同時給出可直接貼到 AI 客戶端的設定片段。伺服端以 JSON-RPC 2.0 同時支援 stdio 與 HTTP 兩種傳輸。"
+release_note = "1. 首次發佈。"
+important = "預設權限為唯讀，且目錄白名單初始為空。連接 AI 客戶端前請先明確加入可存取目錄。"
+
+[en-us]
+name = "MCP Hub"
+auth = "shh"
+descript = "Runs a Model Context Protocol server for MCP-capable AI clients working with your TNAS. Tools cover files, storage, media and jobs. Access is limited by a directory whitelist and three permission levels: read-only (the default), read-write and dangerous. There is no shell execution tool of any kind. Every path is resolved and checked against the whitelist, so traversal and escaping symlinks are refused. All calls go to an audit log, alongside a client configuration snippet to copy."
+release_note = "1. Initial release."
+important = "Default permission level is Read-only, and the directory whitelist starts empty. Add directories explicitly before connecting an AI client."
+
+[fr-fr]
+name = "MCP Hub"
+auth = "shh"
+descript = "Runs a Model Context Protocol server for MCP-capable AI clients working with your TNAS. Tools cover files, storage, media and jobs. Access is limited by a directory whitelist and three permission levels: read-only (the default), read-write and dangerous. There is no shell execution tool of any kind. Every path is resolved and checked against the whitelist, so traversal and escaping symlinks are refused. All calls go to an audit log, alongside a client configuration snippet to copy."
+release_note = "1. Initial release."
+important = "Default permission level is Read-only, and the directory whitelist starts empty. Add directories explicitly before connecting an AI client."
+
+[de-de]
+name = "MCP Hub"
+auth = "shh"
+descript = "Runs a Model Context Protocol server for MCP-capable AI clients working with your TNAS. Tools cover files, storage, media and jobs. Access is limited by a directory whitelist and three permission levels: read-only (the default), read-write and dangerous. There is no shell execution tool of any kind. Every path is resolved and checked against the whitelist, so traversal and escaping symlinks are refused. All calls go to an audit log, alongside a client configuration snippet to copy."
+release_note = "1. Initial release."
+important = "Default permission level is Read-only, and the directory whitelist starts empty. Add directories explicitly before connecting an AI client."
+
+[it-it]
+name = "MCP Hub"
+auth = "shh"
+descript = "Runs a Model Context Protocol server for MCP-capable AI clients working with your TNAS. Tools cover files, storage, media and jobs. Access is limited by a directory whitelist and three permission levels: read-only (the default), read-write and dangerous. There is no shell execution tool of any kind. Every path is resolved and checked against the whitelist, so traversal and escaping symlinks are refused. All calls go to an audit log, alongside a client configuration snippet to copy."
+release_note = "1. Initial release."
+important = "Default permission level is Read-only, and the directory whitelist starts empty. Add directories explicitly before connecting an AI client."
+
+[es-es]
+name = "MCP Hub"
+auth = "shh"
+descript = "Runs a Model Context Protocol server for MCP-capable AI clients working with your TNAS. Tools cover files, storage, media and jobs. Access is limited by a directory whitelist and three permission levels: read-only (the default), read-write and dangerous. There is no shell execution tool of any kind. Every path is resolved and checked against the whitelist, so traversal and escaping symlinks are refused. All calls go to an audit log, alongside a client configuration snippet to copy."
+release_note = "1. Initial release."
+important = "Default permission level is Read-only, and the directory whitelist starts empty. Add directories explicitly before connecting an AI client."
+
+[hu-hu]
+name = "MCP Hub"
+auth = "shh"
+descript = "Runs a Model Context Protocol server for MCP-capable AI clients working with your TNAS. Tools cover files, storage, media and jobs. Access is limited by a directory whitelist and three permission levels: read-only (the default), read-write and dangerous. There is no shell execution tool of any kind. Every path is resolved and checked against the whitelist, so traversal and escaping symlinks are refused. All calls go to an audit log, alongside a client configuration snippet to copy."
+release_note = "1. Initial release."
+important = "Default permission level is Read-only, and the directory whitelist starts empty. Add directories explicitly before connecting an AI client."
+
+[ja-jp]
+name = "MCP Hub"
+auth = "shh"
+descript = "Runs a Model Context Protocol server for MCP-capable AI clients working with your TNAS. Tools cover files, storage, media and jobs. Access is limited by a directory whitelist and three permission levels: read-only (the default), read-write and dangerous. There is no shell execution tool of any kind. Every path is resolved and checked against the whitelist, so traversal and escaping symlinks are refused. All calls go to an audit log, alongside a client configuration snippet to copy."
+release_note = "1. Initial release."
+important = "Default permission level is Read-only, and the directory whitelist starts empty. Add directories explicitly before connecting an AI client."
+
+[ko-kr]
+name = "MCP Hub"
+auth = "shh"
+descript = "Runs a Model Context Protocol server for MCP-capable AI clients working with your TNAS. Tools cover files, storage, media and jobs. Access is limited by a directory whitelist and three permission levels: read-only (the default), read-write and dangerous. There is no shell execution tool of any kind. Every path is resolved and checked against the whitelist, so traversal and escaping symlinks are refused. All calls go to an audit log, alongside a client configuration snippet to copy."
+release_note = "1. Initial release."
+important = "Default permission level is Read-only, and the directory whitelist starts empty. Add directories explicitly before connecting an AI client."
+
+[pl-pl]
+name = "MCP Hub"
+auth = "shh"
+descript = "Runs a Model Context Protocol server for MCP-capable AI clients working with your TNAS. Tools cover files, storage, media and jobs. Access is limited by a directory whitelist and three permission levels: read-only (the default), read-write and dangerous. There is no shell execution tool of any kind. Every path is resolved and checked against the whitelist, so traversal and escaping symlinks are refused. All calls go to an audit log, alongside a client configuration snippet to copy."
+release_note = "1. Initial release."
+important = "Default permission level is Read-only, and the directory whitelist starts empty. Add directories explicitly before connecting an AI client."
+
+[ru-ru]
+name = "MCP Hub"
+auth = "shh"
+descript = "Runs a Model Context Protocol server for MCP-capable AI clients working with your TNAS. Tools cover files, storage, media and jobs. Access is limited by a directory whitelist and three permission levels: read-only (the default), read-write and dangerous. There is no shell execution tool of any kind. Every path is resolved and checked against the whitelist, so traversal and escaping symlinks are refused. All calls go to an audit log, alongside a client configuration snippet to copy."
+release_note = "1. Initial release."
+important = "Default permission level is Read-only, and the directory whitelist starts empty. Add directories explicitly before connecting an AI client."
+
+[tr-tr]
+name = "MCP Hub"
+auth = "shh"
+descript = "Runs a Model Context Protocol server for MCP-capable AI clients working with your TNAS. Tools cover files, storage, media and jobs. Access is limited by a directory whitelist and three permission levels: read-only (the default), read-write and dangerous. There is no shell execution tool of any kind. Every path is resolved and checked against the whitelist, so traversal and escaping symlinks are refused. All calls go to an audit log, alongside a client configuration snippet to copy."
+release_note = "1. Initial release."
+important = "Default permission level is Read-only, and the directory whitelist starts empty. Add directories explicitly before connecting an AI client."
+
+[pt-pt]
+name = "MCP Hub"
+auth = "shh"
+descript = "Runs a Model Context Protocol server for MCP-capable AI clients working with your TNAS. Tools cover files, storage, media and jobs. Access is limited by a directory whitelist and three permission levels: read-only (the default), read-write and dangerous. There is no shell execution tool of any kind. Every path is resolved and checked against the whitelist, so traversal and escaping symlinks are refused. All calls go to an audit log, alongside a client configuration snippet to copy."
+release_note = "1. Initial release."
+important = "Default permission level is Read-only, and the directory whitelist starts empty. Add directories explicitly before connecting an AI client."

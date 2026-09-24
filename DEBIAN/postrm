@@ -1,0 +1,33 @@
+#!/bin/bash
+# ============================================================
+# 卸载后脚本 —— 指引 8.14 postrm
+#
+# 删除范围**仅限本包自己创建的路径**（指引 12.9.7：
+# 「postrm deletes only package-owned paths explicitly created by this application」）。
+#
+# 刻意**不删除**数据盘上的应用数据目录 /Volume*/@apps/<APPID>/data：
+#   * 其中 data/output 是用户跑出来的结果文件，属于用户数据；
+#   * 指引 51 / 12.9.7 要求卸载默认保留用户数据。
+# 需要彻底清理时，README 里给了手删命令。
+# ============================================================
+set -e
+
+APPID="shh13-mcp-hub"
+APPUSER="shh13mcphub"
+
+systemctl daemon-reload 2>/dev/null || true
+
+if [ "$1" = "purge" ]; then
+    rm -f  "/var/api/${APPID}.sock" 2>/dev/null || true
+    rm -rf "/usr/local/${APPID}" 2>/dev/null || true
+    rm -f  "/etc/systemd/system/${APPID}.service" 2>/dev/null || true
+    rm -rf "/var/lib/${APPID}" 2>/dev/null || true
+    rm -rf "/var/log/${APPID}" 2>/dev/null || true
+    if id -u "${APPUSER}" >/dev/null 2>&1; then
+        userdel "${APPUSER}" 2>/dev/null || true
+    fi
+    systemctl daemon-reload 2>/dev/null || true
+    echo "${APPID} 已彻底卸载（数据盘上的运行数据按设计保留，见 README）。"
+fi
+
+exit 0

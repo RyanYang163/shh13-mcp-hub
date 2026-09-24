@@ -1,0 +1,91 @@
+[Unit]
+Description=MCP Hub (TOS 7)
+After=network.target
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+User=shh13mcphub
+Group=shh13mcphub
+WorkingDirectory=/usr/local/shh13-mcp-hub
+ExecStart=/usr/bin/python3 /usr/local/shh13-mcp-hub/bin/shh13-mcp-hub --socket /var/api/shh13-mcp-hub.sock
+EnvironmentFile=-/usr/local/shh13-mcp-hub/shh13-mcp-hub.env
+# 等 socket 真正就绪再算启动成功 —— 否则 App Center 显示 Running 但页面打不开
+ExecStartPost=/bin/sh -c 'i=0; while [ $i -lt 30 ]; do [ -S /var/api/shh13-mcp-hub.sock ] && exit 0; i=$((i+1)); sleep 1; done; exit 1'
+TimeoutStartSec=30
+TimeoutStopSec=10
+
+# ---- 安全加固（指引 12.7）----
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RemoveIPC=true
+SystemCallArchitectures=native
+
+# ⚠️ 这里**刻意不加 PrivateTmp=true**，原因是实测出来的：
+#
+#   TOS 上 /var/api 与 /var/log 都是指向 /tmp 的软链（/tmp 是 tmpfs）：
+#       /var/api -> /tmp/api
+#       /var/log -> /tmp/log
+#   iframe 应用必须把 Unix socket 建在 /var/api/<appid>.sock，于是：
+#
+#   1) `PrivateTmp=true` + `ReadWritePaths=/var/api` 会让 systemd 建不出命名空间，
+#      服务直接 `226/NAMESPACE` 启动失败（2026-09-23 在 TOS 7 真机上逐项二分确认，
+#      见「实测记录」一节）。
+#   2) 就算命名空间建成了，服务看到的是**私有** /tmp，socket 会落在私有命名空间里，
+#      平台 nginx 在宿主上永远看不到它 —— iframe 应用根本无法工作。
+#
+#   所以 PrivateTmp 与 iframe 形态在 TOS 上是互斥的。该项在指引 12.7 里属
+#   「Recommended」而非必需项；其余所有加固项都保留，隔离强度并不因此明显下降
+#   （ProtectSystem=strict + ProtectHome + PrivateDevices + NoNewPrivileges 仍在）。
+#
+#   注：非 iframe（无 UI / 外开）的应用可以安全启用 PrivateTmp —— 它们不需要
+#   /var/api 下的 socket。见 README「实测记录」。
+
+# ⚠️ 这里**必须**给 CAP_DAC_OVERRIDE**，原因同样是真机实测出来的：
+#
+#   平台要求 iframe 应用的 Unix socket 建在 /var/api/<appid>.sock（指引 8.7.1），
+#   但 TOS 上 /var/api 是 /tmp/api 的软链，权限是 **755 root:root**。
+#   非 root 的应用用户既不能在里建文件，也不能 unlink —— 实测：
+#
+#       $ sudo -u <appuser> touch /var/api/x        → Permission denied
+#       $ sudo -u <appuser> python3 -c 'bind ...'   → [Errno 13] Permission denied
+#
+#   没有这个能力时，服务会以 `ExecStart ... (code=exited, status=1/FAILURE)`
+#   反复重启、socket 永不出现（日志里是 `服务异常退出：[Errno 13] Permission denied`）。
+#
+#   加 AmbientCapabilities=CAP_DAC_OVERRIDE 后：服务 active、socket 建成且属主与权限
+#   完全符合规范（`srw-rw---- <appuser>:<appuser>`，0660）。
+#
+#   安全性上没有放松：`CapabilityBoundingSet=CAP_DAC_OVERRIDE` 把能力集从内核默认的
+#   **41 个收窄到 1 个**，是净减少；授予的那一个正是「在平台自有的 /var/api 里创建
+#   自家 socket」所必需的。指引 12.7 的措辞就是「drop all capabilities, add only
+#   required ones」，这里就是照它做的。
+AmbientCapabilities=CAP_DAC_OVERRIDE
+CapabilityBoundingSet=CAP_DAC_OVERRIDE
+
+ReadWritePaths=/usr/local/shh13-mcp-hub /var/api
+
+StateDirectory=shh13-mcp-hub
+LogsDirectory=shh13-mcp-hub
+RuntimeDirectory=shh13-mcp-hub
+
+# ---- 资源上限（指引 10.7 / 12.4）----
+MemoryMax=512M
+CPUQuota=100%
+LimitNOFILE=65536
+LimitNPROC=256
+
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

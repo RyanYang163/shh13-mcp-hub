@@ -1,0 +1,131 @@
+name: Build and Release
+
+# 指引 15.1 Step 3：平台只从 Releases 拉包，所以打 tag 即发版。
+on:
+  push:
+    tags:
+      - "v*"
+      - "[0-9]*"
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "目标架构"
+        required: true
+        default: "x86_64"
+        type: choice
+        options:
+          - x86_64
+          - aarch64
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 解析并校验版本号
+        id: meta
+        run: |
+          set -euo pipefail
+          APPID=$(python3 -c "import json;print(json.load(open('config.ini'))['id'])")
+          VER=$(python3 -c "import json;print(json.load(open('config.ini'))['version'])")
+          echo "appid=$APPID" >> "$GITHUB_OUTPUT"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "platform=${{ github.event.inputs.platform || 'x86_64' }}" >> "$GITHUB_OUTPUT"
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="${GITHUB_REF_NAME}"
+            # 指引 10.2 Step 3 / 4.2.2：tag 与 config.ini 的 version 必须完全一致
+            if [ "${TAG#v}" != "$VER" ]; then
+              echo "::error::tag(${TAG}) 与 config.ini 的 version(${VER}) 不一致，平台会拒绝"
+              exit 1
+            fi
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=$VER" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 守卫 —— 已存在的 Release 一律拒绝覆盖
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.meta.outputs.tag }}"
+          # 重新构建会改变包哈希 → 平台 checksum mismatch。必须换新版本号。
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release $TAG 已存在。禁止覆盖 —— 覆盖会改变资产哈希，导致平台校验失败。请改用新的版本号。"
+            exit 1
+          fi
+          echo "Release $TAG 尚不存在，可以继续。"
+
+      - name: 安装校验工具
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq dpkg-dev lintian
+
+      - name: 构建 Deb 包
+        run: |
+          set -euo pipefail
+          chmod +x build.sh
+          ./build.sh "${{ steps.meta.outputs.platform }}"
+
+      - name: 用 build_deb.py 自检
+        run: |
+          set -euo pipefail
+          APPID="${{ steps.meta.outputs.appid }}"
+          PLATFORM="${{ steps.meta.outputs.platform }}"
+          python3 tools/build_deb.py --inspect "build/output/${APPID}_${PLATFORM}.deb"
+
+      - name: 用真正的 dpkg 复核（本仓库自研打包器必须能被 dpkg 接受）
+        run: |
+          set -euo pipefail
+          APPID="${{ steps.meta.outputs.appid }}"
+          PLATFORM="${{ steps.meta.outputs.platform }}"
+          DEB="build/output/${APPID}_${PLATFORM}.deb"
+
+          echo "--- dpkg-deb -I ---"
+          dpkg-deb -I "$DEB"
+          echo "--- dpkg-deb -c（前 40 行）---"
+          dpkg-deb -c "$DEB" | head -40
+          echo "--- dpkg-deb --info 字段一致性 ---"
+          CTRL_VER=$(dpkg-deb -f "$DEB" Version)
+          CFG_VER=$(python3 -c "import json;print(json.load(open('config.ini'))['version'])")
+          [ "$CTRL_VER" = "$CFG_VER" ] || { echo "::error::control 版本($CTRL_VER) != config.ini($CFG_VER)"; exit 1; }
+          echo "版本一致：$CTRL_VER"
+
+      - name: lintian 检查（信息性，不阻断）
+        run: |
+          set -euo pipefail
+          APPID="${{ steps.meta.outputs.appid }}"
+          PLATFORM="${{ steps.meta.outputs.platform }}"
+          DEB="build/output/${APPID}_${PLATFORM}.deb"
+          lintian --no-tag-display-limit "$DEB" || true
+          echo "lintian 结束（仅信息性；Error 级问题以 build_deb.py --inspect 的结论为准）"
+
+      - name: 检查产物与校验文件
+        id: asset
+        run: |
+          set -euo pipefail
+          APPID="${{ steps.meta.outputs.appid }}"
+          PLATFORM="${{ steps.meta.outputs.platform }}"
+          DEB="build/output/${APPID}_${PLATFORM}.deb"
+          [ -f "$DEB" ] || { echo "::error::未找到 $DEB"; exit 1; }
+          [ -f "${DEB}.sha256" ] || { echo "::error::缺少 ${DEB}.sha256 伴随文件（指引 11）"; exit 1; }
+          echo "deb=$DEB" >> "$GITHUB_OUTPUT"
+          echo "--- sha256 ---"
+          cat "${DEB}.sha256"
+
+      - name: 发布 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "${{ steps.meta.outputs.tag }}" \
+            "${{ steps.asset.outputs.deb }}" \
+            "${{ steps.asset.outputs.deb }}.sha256" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "${{ steps.meta.outputs.appid }} ${{ steps.meta.outputs.version }}" \
+            --notes "TOS 7 Deb 应用包（${{ steps.meta.outputs.platform }}）。本应用为自有实现，仅使用 Python 标准库与原生前端，包内不含第三方二进制。"
