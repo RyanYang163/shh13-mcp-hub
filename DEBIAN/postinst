@@ -43,7 +43,11 @@ chown -R "${APPUSER}:${APPUSER}" "${APP_DIR}" 2>/dev/null || true
 # 升级迁移钩子：指引 4.3 —— postinst 收到的 $1=configure，$2=旧版本号。
 # 数据结构迁移由应用自己在启动时按 PRAGMA user_version 完成（禁止升级时删库）。
 if [ -n "${2:-}" ]; then
-    echo "${APPID}: upgrading from ${2} to 1.0.0"
+    # 新版本号从包管理器现取，**不写死**：写死就必然随版本升级漂移
+    # （2026-09-24 的审核报告在 shh19 上点出的正是这处不一致）。
+    # 取不到只影响这一行日志，不影响安装，所以兜底成 unknown。
+    NEWVER=$(dpkg-query -W -f='${Version}' "${APPID}" 2>/dev/null || true)
+    echo "${APPID}: upgrading from ${2} to ${NEWVER:-unknown}"
 fi
 
 systemctl daemon-reload 2>/dev/null || true

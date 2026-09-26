@@ -2,8 +2,8 @@
   "spdxVersion": "SPDX-2.3",
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
-  "name": "shh13-mcp-hub-1.0.0",
-  "documentNamespace": "https://github.com/RyanYang163/shh13-mcp-hub/sbom/1.0.0",
+  "name": "shh13-mcp-hub-1.0.1",
+  "documentNamespace": "https://github.com/RyanYang163/shh13-mcp-hub/sbom/1.0.1",
   "creationInfo": {
     "created": "2026-09-23T00:00:00Z",
     "creators": [
@@ -15,7 +15,7 @@
     {
       "name": "shh13-mcp-hub",
       "SPDXID": "SPDXRef-Package-shh13-mcp-hub",
-      "versionInfo": "1.0.0",
+      "versionInfo": "1.0.1",
       "downloadLocation": "https://github.com/RyanYang163/shh13-mcp-hub",
       "filesAnalyzed": true,
       "licenseConcluded": "MIT",
@@ -26,7 +26,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:github/RyanYang163/shh13-mcp-hub@1.0.0"
+          "referenceLocator": "pkg:github/RyanYang163/shh13-mcp-hub@1.0.1"
         }
       ]
     }
