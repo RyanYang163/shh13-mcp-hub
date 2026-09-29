@@ -27,7 +27,7 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from . import logx, paths as paths_mod
+from . import i18n, logx, paths as paths_mod
 
 #: 这些扩展名不参与「SPA 回退到 index.html」，避免把 API 404 变成 HTML
 STATIC_TYPES = {
@@ -52,6 +52,49 @@ STATIC_TYPES = {
 }
 
 MAX_BODY = 64 * 1024 * 1024  # 单请求体上限，防止内存被打爆
+
+
+def _localize(response, headers):
+    """在出口处把错误消息换成请求语言。
+
+    为什么要放在出口而不是 ``Response.error`` 里：那里还不知道这次请求要什么语言。
+    语言由前端解析好（用户显式选择 → navigator.language → zh-cn）后放进
+    ``Accept-Language`` 头，这里读它即可 —— 后端不必再单独读一遍设置。
+
+    ``zh-cn`` 时**原样返回**（payload 里已经是中文原文，翻译等于白做）。
+    """
+    info = getattr(response, "i18n", None)
+    if not info:
+        return response
+    lang = i18n.negotiate(headers.get("Accept-Language", "") if headers else "")
+    if lang == i18n.DEFAULT:
+        return response
+    message, hint, args, hint_args, code, extra = info
+    payload = {"ok": False, "error": i18n.tr(message, lang, args)}
+    if hint:
+        payload["hint"] = i18n.tr(hint, lang, hint_args)
+    if code:
+        payload["code"] = code
+    if extra:
+        payload.update(extra)
+    return Response.json(payload, status=response.status)
+
+
+class ErrorMessage:
+    """给 ``Response.error`` 用的结构化错误：保留 key + 参数 + 状态码。
+
+    为什么要个类：消息一旦被 ``%`` 格式化，就再也对不上词表 key 了
+    （英文界面下永远翻不出来）。凡是需要插值的提示，都先包成它再往上抛。
+    """
+    __slots__ = ("i18n_key", "i18n_args", "status")
+
+    def __init__(self, key, args=None, status=400):
+        self.i18n_key = key
+        self.i18n_args = args
+        self.status = status
+
+    def __str__(self):
+        return i18n.render(self.i18n_key, self.i18n_args)
 
 
 class Request:
@@ -121,6 +164,8 @@ class Response:
         self.headers = {"Content-Type": content_type}
         if headers:
             self.headers.update(headers)
+        # 错误响应在出口处按请求语言翻译用；普通响应保持 None（见 _localize）
+        self.i18n = None
 
     @classmethod
     def json(cls, payload, status=200):
@@ -136,15 +181,38 @@ class Response:
         return cls(status, str(html).encode("utf-8"), "text/html; charset=utf-8")
 
     @classmethod
-    def error(cls, message, status=400, hint=None):
+    def error(cls, message, status=400, hint=None, code=None, args=None, hint_args=None,
+              extra=None):
         """统一错误体。
 
         设计文档 §52：**不要**给用户看 ``Error 500``，要给可读原因与下一步动作。
+
+        **多语言**：``message`` / ``hint`` 传**中文原文**（即 tnasapp.i18n 词表里的 key），
+        插值参数走 ``args`` / ``hint_args``，**不要自己先做 % 格式化** ——
+        先格式化就把 key 丢了，英文界面下永远翻不出来。真正翻译在 ``_send`` 出口做，
+        那里才知道这次请求要什么语言。
+
+        ``code`` 是给前端做分支判断用的**结构化错误码**：前端不要拿 message 里的
+        中文措辞做正则匹配，那样界面一换语言就静默失效。
         """
-        payload = {"ok": False, "error": str(message)}
+        if getattr(message, "i18n_key", None) is not None:
+            # 自带 key + 参数的对象（ErrorMessage / paths.PathDenied）透传出去
+            key = message.i18n_key
+            if args is None:
+                args = getattr(message, "i18n_args", None)
+            message = key
+        elif isinstance(message, BaseException):
+            message = str(message)
+        payload = {"ok": False, "error": i18n.render(message, args)}
         if hint:
-            payload["hint"] = hint
-        return cls.json(payload, status=status)
+            payload["hint"] = i18n.render(hint, hint_args)
+        if code:
+            payload["code"] = code
+        if extra:
+            payload.update(extra)          # 例如目录选择器要一并带回 roots
+        response = cls.json(payload, status=status)
+        response.i18n = (message, hint, args, hint_args, code, extra)
+        return response
 
     @classmethod
     def file(cls, path, download_name=None):
@@ -256,7 +324,9 @@ class App:
         self.store = Store(self.paths.db_path, list(SCHEMA) + list(extra_migrations or []))
         self.settings = Settings(self.paths.runtime_config_path, self.default_settings())
         self.allowed = paths_mod.AllowedRoots()
-        self.jobs = JobManager(self.store, workers=workers, logger=logx.get("jobs"))
+        self._last_accept_language = ""
+        self.jobs = JobManager(self.store, workers=workers, logger=logx.get("jobs"),
+                               lang_provider=self._ui_lang)
 
         self.routes = Router()
         self.auth_mode = str(self.settings.get("auth_mode", "lenient"))
@@ -265,11 +335,29 @@ class App:
 
         self._register_core_routes()
 
+    def _ui_lang(self):
+        """任务线程用的界面语言。
+
+        任务线程没有请求上下文，取不到 Accept-Language，所以这里：
+          1) 优先界面里显式选的语言（前端 UI.langSelect 会写进 settings.ui_language）
+          2) 否则用**最后一次请求**带的 Accept-Language（Handler._send 里记的）
+          3) 都没有 → zh-cn
+        """
+        chosen = str(self.settings.get("ui_language") or "")
+        if chosen:
+            return chosen
+        return self._last_accept_language or ""
+
     # ---- 应用可覆写 ----
 
     def default_settings(self):
         """应用自定义的默认配置项。"""
-        return {"auth_mode": "lenient", "debug": False}
+        return {
+            "auth_mode": "lenient",
+            # 界面语言：空 = 跟随浏览器（前端会把解析结果放进 Accept-Language）
+            "ui_language": "",
+            "debug": False,
+        }
 
     # ---- 路由装饰器 ----
 
@@ -623,16 +711,19 @@ def _make_handler(app):
             try:
                 length = int(self.headers.get("Content-Length") or 0)
             except (TypeError, ValueError):
-                return b"", "Content-Length 非法"
+                return b"", ErrorMessage("Content-Length 非法")
             if length < 0:
-                return b"", "Content-Length 非法"
+                return b"", ErrorMessage("Content-Length 非法")
             if length > MAX_BODY:
-                return b"", "请求体过大（上限 %d 字节）" % MAX_BODY
+                return b"", ErrorMessage("请求体过大（上限 %d 字节）", (MAX_BODY,), status=413)
             if not length:
                 return b"", None
             return self.rfile.read(length), None
 
         def _send(self, response):
+            # 记下这次的语言，给任务线程用（它没有请求上下文）
+            app._last_accept_language = self.headers.get("Accept-Language", "") or ""
+            response = _localize(response, self.headers)
             body = response.body or b""
             self.send_response(response.status)
             for key, value in response.headers.items():
@@ -665,7 +756,7 @@ def _make_handler(app):
                         Response.error(
                             "服务内部错误",
                             500,
-                            "请查看应用日志（journalctl -u %s）" % app.app_id,
+                            "请查看应用日志（journalctl -u %s）", hint_args=(app.app_id,),
                         )
                     )
                 except Exception:
@@ -695,7 +786,7 @@ def _make_handler(app):
 
             body, body_error = self._read_body()
             if body_error:
-                self._send(Response.error(body_error, 413 if "过大" in body_error else 400))
+                self._send(Response.error(body_error, getattr(body_error, "status", 400)))
                 return
 
             rel_path = self._strip_prefix(raw_path)
@@ -725,7 +816,7 @@ def _make_handler(app):
             handler, params = app.routes.match(self.command, rel_path)
             if handler is None:
                 if params and params.get("__method_not_allowed__"):
-                    self._send(Response.error("不支持的请求方法：%s" % self.command, 405))
+                    self._send(Response.error("不支持的请求方法：%s", 405, args=(self.command,)))
                     return
                 # 非 API 路径回退到静态资源（前端用相对路径，刷新子路径也能打开）。
                 # 回退只对「干净的」路径生效——含 ``..`` 的路径一律 404，绝不回退，
@@ -740,9 +831,10 @@ def _make_handler(app):
                             return
                 self._send(
                     Response.error(
-                        "接口不存在：%s" % rel_path,
+                        "接口不存在：%s",
                         404,
                         "可用接口见 GET /api/app",
+                        args=(rel_path,),
                     )
                 )
                 return

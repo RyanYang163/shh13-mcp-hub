@@ -11,6 +11,29 @@
    这里统一解析出 base，其余一律走相对路径。
    ========================================================================== */
 
+/* --------------------------------------------------------------------------
+   i18n 兜底。
+   app.js 里到处在调 T()，而 T 是 i18n.js 提供的 —— 万一某个页面漏挂
+   <script src="./i18n.js">（或升级期间读到旧缓存），裸调会 ReferenceError，
+   整个应用白屏。这里兜底成「原样返回中文」：界面退化成纯中文，但能用。
+   ⚠️ 必须在任何使用 T 的代码之前执行。
+   -------------------------------------------------------------------------- */
+if (typeof window.T !== 'function') {
+  window.T = function (key) { return key; };
+}
+if (!window.I18N || typeof window.I18N.t !== 'function') {
+  window.I18N = {
+    LANGS: ['zh-cn'],
+    DEFAULT_LANG: 'zh-cn',
+    t: window.T,
+    lang: function () { return 'zh-cn'; },
+    setLang: function () { return 'zh-cn'; },
+    applyStatic: function () {},
+    canonical: function () { return 'zh-cn'; },
+    nativeName: function (code) { return code; },
+  };
+}
+
 const API = (() => {
   const APP_ID = (document.documentElement.dataset.appId || '').trim();
 
@@ -52,6 +75,9 @@ const API = (() => {
     const session = getCookie('TMSESSNAME');
     const csrf = getCookie('X-Csrf-Token');
     const headers = { 'Content-Type': 'application/json' };
+    // 界面语言：前端已经解析好（用户选择 → navigator.language → zh-cn），
+    // 直接告诉后端，省得它再读一遍设置、也解决了任务线程拿不到请求上下文的问题。
+    if (window.I18N && typeof I18N.lang === 'function') headers['Accept-Language'] = I18N.lang();
     if (csrf) headers['X-Csrf-Token'] = csrf;
     if (session || csrf) {
       // 浏览器会丢弃这个自定义 Cookie 头（它是 fetch 的 forbidden header），
@@ -89,6 +115,9 @@ const API = (() => {
       const error = new Error(message);
       error.status = response.status;
       error.hint = payload && payload.hint;
+      // 结构化错误码。**判断分支一律读它，不要拿 message 里的中文措辞做正则匹配** ——
+      // 那样在非中文界面下会静默失效（后端返回的 message 已经是本地化后的文本）。
+      error.code = (payload && payload.code) || '';
       error.payload = payload;
       throw error;
     }
@@ -109,6 +138,9 @@ const API = (() => {
 })();
 
 /* ------------------------------------------------------------------ 工具 */
+
+/** U.el 里哪些属性值该过一遍词表 —— 只有面向用户的提示类属性 */
+const I18N_ATTRS = { title: 1, placeholder: 1, alt: 1 };
 
 const U = {
   esc(text) {
@@ -155,11 +187,11 @@ const U = {
 
   duration(seconds) {
     const total = Math.max(0, Math.round(Number(seconds) || 0));
-    if (total < 60) return total + ' 秒';
+    if (total < 60) return T('{n} 秒', { n: total });
     const m = Math.floor(total / 60), s = total % 60;
-    if (m < 60) return `${m} 分 ${s} 秒`;
+    if (m < 60) return T('{m} 分 {s} 秒', { m: m, s: s });
     const h = Math.floor(m / 60);
-    return `${h} 小时 ${m % 60} 分`;
+    return T('{h} 小时 {m} 分', { h: h, m: m % 60 });
   },
 
   ms(seconds) {
@@ -177,23 +209,28 @@ const U = {
     };
   },
 
+  /**
+   * 建元素。**这里是界面多语言的第一个收口点**：text / html / 裸字符串子节点 /
+   * title / placeholder / alt 都过一遍 T()。词表以中文原文为 key，查不到原样返回，
+   * 所以文件路径、文件名、数字这类动态数据穿过 T() 不会被动到。
+   */
   el(tag, attrs, children) {
     const node = document.createElement(tag);
     if (attrs) {
       for (const [key, value] of Object.entries(attrs)) {
         if (value == null || value === false) continue;
         if (key === 'class') node.className = value;
-        else if (key === 'html') node.innerHTML = value;
-        else if (key === 'text') node.textContent = value;
+        else if (key === 'html') node.innerHTML = T(value);
+        else if (key === 'text') node.textContent = T(value);
         else if (key === 'dataset') Object.assign(node.dataset, value);
         else if (key.startsWith('on') && typeof value === 'function') {
           node.addEventListener(key.slice(2).toLowerCase(), value);
-        } else node.setAttribute(key, value === true ? '' : value);
+        } else node.setAttribute(key, I18N_ATTRS[key] ? T(value) : (value === true ? '' : value));
       }
     }
     for (const child of [].concat(children || [])) {
       if (child == null) continue;
-      node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+      node.appendChild(typeof child === 'string' ? document.createTextNode(T(child)) : child);
     }
     return node;
   },
@@ -277,13 +314,16 @@ const UI = {
       const backdrop = U.el('div', { class: 'modal-backdrop' });
       const bodyParts = [U.el('div', { class: 'prewrap', text: opts.body })];
       let input = null;
+      // requireText 是「让用户手输的确认词」。它必须跟着界面语言走：提示里显示译词、
+      // 校验也比对译词，否则英文界面下会要求用户手打一个中文词才能继续。
+      const needText = opts.requireText ? T(opts.requireText) : '';
       if (opts.requireText) {
         input = U.el('input', {
           type: 'text',
-          placeholder: opts.requireText,
+          placeholder: needText,
           style: 'margin-top:10px',
         });
-        bodyParts.push(U.el('div', { class: 'small muted', text: `请输入 ${opts.requireText} 以确认` }));
+        bodyParts.push(U.el('div', { class: 'small muted', text: T('请输入 {x} 以确认', { x: needText }) }));
         bodyParts.push(input);
       }
       const confirmBtn = U.el('button', {
@@ -309,7 +349,7 @@ const UI = {
       ]);
       if (input) {
         input.addEventListener('input', () => {
-          confirmBtn.disabled = input.value.trim() !== opts.requireText;
+          confirmBtn.disabled = input.value.trim() !== needText;
         });
         setTimeout(() => input.focus(), 30);
       }
@@ -369,6 +409,26 @@ const UI = {
     return U.el('span', { class: 'badge ' + (kind || 'neutral'), text: text });
   },
 
+  /**
+   * 语言选择器（放在各应用「设置」页）。语言自称用它自己那套写法，不翻译。
+   * 选中后：落 localStorage → 套用静态文案 → 广播 tnas-langchange（应用据此重渲染）
+   * → 尽力同步到后端 settings.ui_language（存不上也不影响本次会话）。
+   */
+  langSelect(options) {
+    const opts = Object.assign({ persist: true, onChange: null }, options || {});
+    const select = U.el('select', {}, I18N.LANGS.map((code) =>
+      U.el('option', { value: code, text: I18N.nativeName(code) })));
+    select.value = I18N.lang();
+    select.addEventListener('change', async () => {
+      const code = I18N.setLang(select.value);
+      if (opts.persist) {
+        try { await API.post('api/settings', { ui_language: code }); } catch (error) { /* 忽略 */ }
+      }
+      if (opts.onChange) opts.onChange(code);
+    });
+    return select;
+  },
+
   /** 目录/文件选择器：走 /api/fs 系列接口 */
   pickDir(options) {
     const opts = Object.assign({ start: '', onPick: null, title: '选择目录', pickFile: false }, options || {});
@@ -413,7 +473,7 @@ const UI = {
       }
       chosen.path = data.path || path || '';
       const label = U.byId('picker-chosen');
-      if (label) label.textContent = '当前目录：' + (chosen.path || '(根)');
+      if (label) label.textContent = T('当前目录：') + (chosen.path || T('(根)'));
 
       crumbNode.innerHTML = '';
       const rootsBtn = U.el('button', { class: 'btn sm ghost', text: '起始位置' });
@@ -481,7 +541,7 @@ const Jobs = {
       node.appendChild(stat);
     });
     node.appendChild(U.el('span', { class: 'spacer' }));
-    const refresh = U.el('button', { class: 'btn sm ghost', html: Icons.svg('refresh', { size: 13 }) + '<span>刷新</span>' });
+    const refresh = U.el('button', { class: 'btn sm ghost', html: Icons.svg('refresh', { size: 13 }) + '<span>' + T('刷新') + '</span>' });
     refresh.addEventListener('click', () => Jobs.tick(true));
     node.appendChild(refresh);
     Jobs.stats = stats;
@@ -512,7 +572,9 @@ const Jobs = {
   },
 
   async submit(type, params, title) {
-    const data = await API.post('api/jobs', { type, params: params || {}, title: title || '' });
+    // 标题在**提交前**翻译 —— 它会写进 jobs 表，之后前端读到的是历史数据，
+    // 那时再翻就晚了（库里存的是中文，英文界面下会一直显示中文）。
+    const data = await API.post('api/jobs', { type, params: params || {}, title: T(title || '') });
     UI.ok('任务已提交', '可在底部任务栏查看进度');
     Jobs.tick();
     return data.job;
@@ -611,7 +673,7 @@ const Jobs = {
       add('查看日志', 'terminal', 'ghost', async () => {
         const logs = await Jobs.logs(job.id);
         UI.modal({
-          title: `任务 #${job.id} 日志`,
+          title: T('任务 #{id} 日志', { id: job.id }),
           icon: 'terminal',
           wide: true,
           bodyHtml: Jobs.logsHtml(logs),
@@ -628,7 +690,7 @@ const Jobs = {
       }
       add('日志', 'terminal', 'ghost', async () => {
         const logs = await Jobs.logs(job.id);
-        UI.modal({ title: `任务 #${job.id} 日志`, icon: 'terminal', wide: true, bodyHtml: Jobs.logsHtml(logs) });
+        UI.modal({ title: T('任务 #{id} 日志', { id: job.id }), icon: 'terminal', wide: true, bodyHtml: Jobs.logsHtml(logs) });
       });
       add('重试', 'refresh', 'ghost', () => Jobs.retry(job.id));
       add('删除', 'trash', 'ghost', () => Jobs.remove(job.id));
@@ -637,7 +699,7 @@ const Jobs = {
   },
 
   logsHtml(logs) {
-    if (!logs.length) return '<div class="empty"><div class="ed">暂无日志</div></div>';
+    if (!logs.length) return '<div class="empty"><div class="ed">' + T('暂无日志') + '</div></div>';
     return '<pre class="logview">' + logs.map((entry) =>
       `<span class="lv-${U.esc(entry.level)}">${U.esc(entry.time)} [${U.esc(entry.level)}]</span> ${U.esc(entry.message)}`
     ).join('\n') + '</pre>';
@@ -837,6 +899,13 @@ const Shell = {
     });
 
     return { show, current: () => current };
+  },
+
+  /** 语言切换后重渲染当前视图。各应用在 Shell.init 之后调一次即可。 */
+  bindLanguage(shell) {
+    window.addEventListener('tnas-langchange', () => {
+      if (shell && shell.current()) shell.show(shell.current());
+    });
   },
 
   async loadAppInfo() {

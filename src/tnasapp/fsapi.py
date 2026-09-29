@@ -107,20 +107,15 @@ def list_dir(app, raw_path, limit=2000, include_files=True):
         target = app.allowed.check(raw_path)
     except paths_mod.PathDenied as exc:
         # 白名单外：不报 500，给出可读原因 + 起始位置，让用户自己改选
-        payload = _roots_payload(app)
-        payload.update({
-            "ok": False,
-            "error": str(exc),
-            "hint": "该目录不在允许访问范围内，请先在「设置」里把它加入可访问目录。",
-        })
-        return payload
+        return Response.error(
+            exc, 403,
+            "该目录不在允许访问范围内，请先在「设置」里把它加入可访问目录。",
+            extra=_roots_payload(app),
+        )
 
     if not os.path.isdir(target):
-        return {
-            "ok": False,
-            "error": "不是目录：%s" % raw_path,
-            "hint": "请选择目录（不是文件）。",
-        }
+        return Response.error("不是目录：%s", 400, "请选择目录（不是文件）。",
+                              args=(raw_path,))
 
     entries = []
     child_dirs = []
@@ -143,14 +138,13 @@ def list_dir(app, raw_path, limit=2000, include_files=True):
                 if len(entries) + len(child_dirs) >= limit:
                     break
     except PermissionError:
-        return {
-            "ok": False,
-            "error": "无法读取此目录",
-            "hint": "当前用户没有权限、文件正被其他程序占用，或路径已不存在。"
-                    "可尝试把该目录加入可访问目录，或改选其它目录。",
-        }
+        return Response.error(
+            "无法读取此目录", 403,
+            "当前用户没有权限、文件正被其他程序占用，或路径已不存在。"
+            "可尝试把该目录加入可访问目录，或改选其它目录。",
+        )
     except OSError as exc:
-        return {"ok": False, "error": "无法读取此目录：%s" % exc, "hint": "请改选其它目录。"}
+        return Response.error("无法读取此目录：%s", 403, "请改选其它目录。", args=(exc,))
 
     child_dirs.sort(key=lambda item: item["name"].lower())
     files = sorted(entries, key=lambda item: item["name"].lower())
@@ -210,11 +204,11 @@ def stat_path(app, raw_path):
     try:
         target = app.allowed.check(raw_path)
     except paths_mod.PathDenied as exc:
-        return {"ok": False, "error": str(exc)}
+        return Response.error(exc, 403)
     try:
         stat = os.stat(target)
     except OSError as exc:
-        return {"ok": False, "error": "无法读取：%s" % exc}
+        return Response.error("无法读取：%s", 403, args=(exc,))
     return {
         "ok": True,
         "path": target,

@@ -20,7 +20,7 @@ import json
 import threading
 import time
 
-from . import logx
+from . import i18n, logx
 
 STATES = (
     "queued",
@@ -97,19 +97,22 @@ class JobContext:
                 message = "%d / %d" % (done, total)
         else:
             pct = max(0.0, min(100.0, float(done)))
+        if message:
+            message = self._manager._t(str(message))
         self._manager._update(self.job_id, progress=pct, message=message)
         self._seq += 1
         # 每 5 次进度上报刷一次心跳，避免过于频繁地写库
         if self._seq % 5 == 0:
             self.checkpoint()
 
-    def message(self, text):
-        self._manager._update(self.job_id, message=str(text))
+    def message(self, text, args=None):
+        """任务卡片副标题。传中文原文即可，由管理器按当前界面语言翻译。"""
+        self._manager._update(self.job_id, message=self._manager._t(str(text), args))
 
     # ---- 日志 ----
 
-    def log(self, message, level="INFO"):
-        self._manager._log(self.job_id, level, message)
+    def log(self, message, level="INFO", args=None):
+        self._manager._log(self.job_id, level, message, args)
 
     # ---- 协作式控制 ----
 
@@ -151,12 +154,15 @@ class JobManager:
     :param workers: 工作线程数
     """
 
-    def __init__(self, store, workers=2, logger=None):
+    def __init__(self, store, workers=2, logger=None, lang_provider=None):
         self.store = store
         self.workers = max(1, int(workers))
         self.log = logger or logx.get("jobs")
         self._handlers = {}
         self._threads = []
+        # 界面语言由 server 注入（读 app.settings.ui_language，退回记住的 Accept-Language）。
+        # 注不进就退回 zh-cn —— 任务日志保持中文，与改造前行为一致，不会更糟。
+        self._lang_provider = lang_provider
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._running = set()
@@ -197,7 +203,7 @@ class JobManager:
         for row in rows:
             if row["cancel_requested"]:
                 self._update(
-                    row["id"], state="canceled", message="已取消", finished_at=time.time()
+                    row["id"], state="canceled", message=self._t("已取消"), finished_at=time.time()
                 )
                 continue
             if int(row["attempts"] or 0) >= int(row["max_attempts"] or DEFAULT_MAX_ATTEMPTS):
@@ -212,7 +218,7 @@ class JobManager:
                     row["id"],
                     state="queued",
                     progress=0,
-                    message="上次运行被中断，已重新排队",
+                    message=self._t("上次运行被中断，已重新排队"),
                     pause_requested=0,
                 )
                 self._log(row["id"], "WARN", "上次运行被中断，已重新排队")
@@ -341,9 +347,9 @@ class JobManager:
         if row["state"] in ("completed", "failed", "canceled"):
             return False
         if row["state"] == "queued":
-            self._update(job_id, state="canceled", finished_at=time.time(), message="已取消")
+            self._update(job_id, state="canceled", finished_at=time.time(), message=self._t("已取消"))
         else:
-            self._update(job_id, cancel_requested=1, state="canceling", message="正在取消…")
+            self._update(job_id, cancel_requested=1, state="canceling", message=self._t("正在取消…"))
         self._wake.set()
         return True
 
@@ -351,14 +357,14 @@ class JobManager:
         row = self._row(job_id)
         if row is None or row["state"] not in ("running", "queued"):
             return False
-        self._update(job_id, pause_requested=1, message="已请求暂停")
+        self._update(job_id, pause_requested=1, message=self._t("已请求暂停"))
         return True
 
     def resume(self, job_id):
         row = self._row(job_id)
         if row is None or row["state"] != "paused":
             return False
-        self._update(job_id, pause_requested=0, state="running", message="已恢复")
+        self._update(job_id, pause_requested=0, state="running", message=self._t("已恢复"))
         self._wake.set()
         return True
 
@@ -418,10 +424,23 @@ class JobManager:
         values.append(int(job_id))
         self.store.execute("UPDATE jobs SET %s WHERE id=?" % ",".join(columns), tuple(values))
 
-    def _log(self, job_id, level, message):
+    def _lang(self):
+        if self._lang_provider is None:
+            return i18n.DEFAULT
+        try:
+            return i18n.negotiate("", self._lang_provider() or "")
+        except Exception:
+            return i18n.DEFAULT
+
+    def _t(self, key, args=None):
+        """把中文原文换成当前语言的文本。查不到原样返回中文。"""
+        return i18n.tr(key, self._lang(), args)
+
+    def _log(self, job_id, level, message, args=None):
         self.store.execute(
             "INSERT INTO job_logs (job_id, ts, level, message) VALUES (?,?,?,?)",
-            (int(job_id), time.time(), str(level).upper(), logx.redact(str(message))),
+            (int(job_id), time.time(), str(level).upper(),
+             logx.redact(self._t(message, args))),
         )
 
     def _sleep(self, seconds):
@@ -478,7 +497,7 @@ class JobManager:
             self._running.add(job_id)
         job = self._row(job_id) or row
         ctx = JobContext(self, job)
-        self._log(job_id, "INFO", "任务开始：%s" % (row["title"] or row["type"]))
+        self._log(job_id, "INFO", "任务开始：%s", (row["title"] or row["type"],))
         try:
             handler = self._handlers[row["type"]]
             handler(ctx)
@@ -486,27 +505,27 @@ class JobManager:
                 job_id,
                 state="completed",
                 progress=100,
-                message="已完成",
+                message=self._t("已完成"),
                 finished_at=time.time(),
             )
             self._log(job_id, "INFO", "任务完成")
         except JobCanceled:
             self._update(
-                job_id, state="canceled", message="已取消", finished_at=time.time()
+                job_id, state="canceled", message=self._t("已取消"), finished_at=time.time()
             )
             self._log(job_id, "WARN", "任务被取消")
         except Exception as exc:
             import traceback
 
             detail = "%s: %s" % (type(exc).__name__, exc)
-            self._log(job_id, "ERROR", "任务失败：%s" % detail)
+            self._log(job_id, "ERROR", "任务失败：%s", (detail,))
             self._log(job_id, "DEBUG", traceback.format_exc())
             self.log.error("任务 %s 失败：%s", job_id, detail)
             self._update(
                 job_id,
                 state="failed",
                 error=detail,
-                message="失败",
+                message=self._t("失败"),
                 finished_at=time.time(),
             )
         finally:

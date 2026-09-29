@@ -29,7 +29,7 @@ from . import mcpserver as mcp
 from . import tools as toolset
 
 APP_ID = "shh13-mcp-hub"
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.025"
 TITLE = "MCP Hub"
 
 MIGRATIONS = [

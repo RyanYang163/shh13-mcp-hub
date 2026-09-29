@@ -172,7 +172,17 @@ def _rmtree(path):
 
 
 class PathDenied(Exception):
-    """路径不在白名单内（疑似目录穿越或 symlink 逃逸）。"""
+    """路径不在白名单内（疑似目录穿越或 symlink 逃逸）。
+
+    ``i18n_key`` / ``i18n_args`` 让消息在**抛出的那一刻**就保留可翻译的形状 ——
+    一旦被 ``%`` 格式化过，就再也对不上服务端词表，英文界面下永远翻不出来。
+    ``str(exc)`` 仍返回渲染好的中文，老代码不受影响。
+    """
+
+    def __init__(self, key, args=None):
+        super().__init__(key % args if args else key)
+        self.i18n_key = key
+        self.i18n_args = args
 
 
 class AllowedRoots:
@@ -234,7 +244,7 @@ class AllowedRoots:
             # 允许 .. 出现在「相对于白名单根内部」的情形，用 realpath 判定
             pass
         if must_exist and not os.path.exists(path):
-            raise PathDenied("路径不存在：%s" % path)
+            raise PathDenied("路径不存在：%s", (path,))
 
         real = os.path.realpath(os.path.expanduser(path))
         if not self._roots:
@@ -242,7 +252,7 @@ class AllowedRoots:
         for root in self._roots:
             if real == root or real.startswith(root + os.sep):
                 return real
-        raise PathDenied("路径不在允许访问的目录内：%s" % path)
+        raise PathDenied("路径不在允许访问的目录内：%s", (path,))
 
     def check_write(self, path, must_exist=False):
         """写操作用；语义与 :meth:`check` 相同，便于日后加更严的规则。"""

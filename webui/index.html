@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MCP Hub</title>
-<link rel="stylesheet" href="./app.css?v=1.0.1">
+<link rel="stylesheet" href="./app.css?v=1.0.025">
 <style>
   :root { --app-accent: #B45309; --app-accent-weak: #fdf3e3; }
   @media (prefers-color-scheme: dark) { :root { --app-accent-weak: #2a2113; } }
@@ -83,8 +83,12 @@
 </div>
 <div id="toasts" class="toasts"></div>
 
-<script src="./icons.js?v=1.0.1"></script>
-<script src="./app.js?v=1.0.1"></script>
-<script src="./mcp.js?v=1.0.1"></script>
+<script src="./icons.js?v=1.0.025"></script>
+<!-- 多语言：i18n.js 必须在 app.js 之前 —— app.js 里到处调 T()，
+     而它的兜底守卫在加载时就判定一次，后到就退化成纯中文了 -->
+<script src="./i18n.js?v=1.0.025"></script>
+<script src="./mcp.i18n.js?v=1.0.025"></script>
+<script src="./app.js?v=1.0.025"></script>
+<script src="./mcp.js?v=1.0.025"></script>
 </body>
 </html>
